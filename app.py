@@ -1,102 +1,109 @@
 import streamlit as st
 import requests
-from bs4 import BeautifulSoup
-import re
 
-# Configuración de página
+# Configuración de la página
 st.set_page_config(page_title="Auditoría de Reclutamiento SWGOH", page_icon="📊", layout="wide")
 
 st.title("📊 Auditoría de Reclutamiento - SWGOH")
-st.write("Introduce el código de aliado o el enlace de swgoh.gg del candidato para analizar su inventario:")
+st.write("Introduce el Código de Aliado del candidato (o la URL de swgoh.gg) para analizar su inventario:")
 
-ally_input = st.text_input("Código de Aliado (ej: 736-231-314) o URL del perfil:", "")
+ally_input = st.text_input("Código de Aliado (ej: 736-231-314 o 883-313-486):", "")
 
 if st.button("🔍 Generar Informe de Auditoría"):
-    clean_input = ally_input.strip()
-    
-    # Extraer código de aliado si se introdujo una URL completa
-    if "swgoh.gg" in clean_input:
-        match = re.search(r'/p/(\d+)', clean_input)
+    code_clean = ally_input.replace("-", "").strip()
+    # Si introdujo una URL, extraer el código numérico
+    if "swgoh.gg" in code_clean:
+        import re
+        match = re.search(r'(\d{9})', code_clean)
         if match:
-            ally_code = match.group(1)
-        else:
-            ally_code = re.sub(r'\D', '', clean_input)
-    else:
-        ally_code = re.sub(r'\D', '', clean_input)
+            code_clean = match.group(1)
 
-    if not ally_code:
-        st.error("Por favor, introduce un Código de Aliado o enlace válido.")
+    if not code_clean or not code_clean.isdigit():
+        st.error("Por favor, introduce un Código de Aliado válido (9 dígitos).")
     else:
-        with st.spinner("Analizando perfil del candidato en swgoh.gg..."):
-            profile_url = f"https://swgoh.gg/p/{ally_code}/characters/"
+        with st.spinner("Obteniendo datos a través del servicio puente..."):
+            # Usar API pública directamente con encabezados
+            target_url = f"https://swgoh.gg/api/player/{code_clean}/"
+            
+            # Intento de petición
             headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+                "Accept": "application/json"
             }
             
+            # Servicio de proxy alternativo en caso de bloqueo de Cloudflare
+            proxy_url = f"https://api.allorigins.win/get?url={requests.utils.quote(target_url)}"
+            
             try:
-                response = requests.get(profile_url, headers=headers, timeout=15)
-                
-                if response.status_code != 200:
-                    st.error(f"No se pudo acceder al perfil (Error HTTP {response.status_code}). Verifica que el código de aliado ({ally_code}) esté registrado en swgoh.gg.")
-                else:
-                    soup = BeautifulSoup(response.text, 'html.parser')
+                # Probar conexión mediante proxy
+                response = requests.get(proxy_url, timeout=15)
+                if response.status_code == 200:
+                    import json
+                    json_raw = response.json().get('contents')
+                    data = json.loads(json_raw)
                     
-                    # Extraer el nombre del jugador
-                    name_elem = soup.select_one('.profile-portrait-name, h2, title')
-                    player_name = name_elem.text.strip().replace(" · Characters", "").replace(" | SWGOH.GG", "") if name_elem else f"Jugador {ally_code}"
-                    
-                    st.success("¡Perfil cargado con éxito!")
+                    player_data = data.get("data", {})
+                    player_name = player_data.get("name", f"Jugador {code_clean}")
+                    guild_name = player_data.get("guild_name", "Sin Gremio")
+                    units_list = data.get("units", [])
+                    units = {u["data"]["base_id"]: u["data"] for u in units_list if "data" in u}
+
+                    st.success(f"¡Datos cargados con éxito para **{player_name}** ({guild_name})!")
                     st.markdown("---")
                     st.markdown(f"## 📊 INFORME DE AUDITORÍA: {player_name}")
-                    st.markdown(f"🔗 **Perfil SWGOH.GG:** [{profile_url}]({profile_url})")
-                    
-                    # Mapear unidades y sus niveles de reliquia o nivel
-                    units_data = {}
-                    char_items = soup.select('.collection-char, .media-list-item')
-                    
-                    for item in char_items:
-                        name_node = item.select_one('.collection-char-name-link, .media-list-item-title')
-                        relic_node = item.select_one('.relic-badge')
-                        if name_node:
-                            c_name = name_node.text.strip().lower()
-                            r_text = f"R{relic_node.text.strip()}" if relic_node else "G12 / Desbloqueado"
-                            units_data[c_name] = r_text
+                    st.markdown(f"**Gremio Actual:** {guild_name}")
+
+                    # Función auxiliar de reliquias
+                    def get_relic(base_id):
+                        unit = units.get(base_id)
+                        if not unit:
+                            return "❌ No Desbloqueado", 0
+                        r_level = unit.get("relic_tier", 1) - 2
+                        if r_level > 0:
+                            return f"R{r_level}", r_level
+                        g_level = unit.get("gear_level", 1)
+                        return f"G{g_level}", 0
 
                     # 1. Clones Luminosos
                     st.markdown("### 🪖 Clones Luminosos (Mínimo R7 Exigido)")
                     clones = [
-                        ("Captain Rex", "Captain Rex"),
-                        ("CT-5555 \"Fives\"", "CT-5555 'Fives'"),
-                        ("ARC Trooper", "ARC Trooper"),
-                        ("CT-21-0408 \"Echo\"", "CT-21-0408 'Echo'"),
-                        ("CT-7567 \"Rex\"", "CT-7567 'Rex'"),
-                        ("CC-2224 \"Cody\"", "CC-2224 'Cody'")
+                        ("CAPTAINREX", "Captain Rex"),
+                        ("CT5555", "CT-5555 'Fives'"),
+                        ("ARCTROOPER", "ARC Trooper"),
+                        ("CT210408", "CT-21-0408 'Echo'"),
+                        ("CT7567", "CT-7567 'Rex'"),
+                        ("CC2224", "CC-2224 'Cody'")
                     ]
-                    for key_name, display_name in clones:
-                        estado = units_data.get(key_name.lower(), "❌ No Desbloqueado / Menor a R7")
-                        st.write(f"- **{display_name}:** `{estado}`")
+                    for cid, cname in clones:
+                        r_str, r_num = get_relic(cid)
+                        status = "✅ **APTO**" if r_num >= 7 else "❌ **NO APTO (Requiere R7+)**"
+                        st.write(f"* **{cname}:** `{r_str}` ➔ {status}")
 
                     # 2. Requisitos RoTE
                     st.markdown("### 🏛️ Requisitos RoTE (Rise of the Empire)")
                     st.markdown("**Requisitos R5+:**")
-                    rote_r5 = [("Qi'ra", "Qi'ra"), ("Young Han Solo", "Joven Han Solo")]
-                    for key_name, display_name in rote_r5:
-                        estado = units_data.get(key_name.lower(), "❌ No Desbloqueado / Menor a R5")
-                        st.write(f"- **{display_name}:** `{estado}`")
-                        
+                    for rid, rname in [("QIRA", "Qi'ra"), ("YOUNGHAN", "Joven Han Solo")]:
+                        r_str, r_num = get_relic(rid)
+                        status = "✅ Cumple" if r_num >= 5 else "❌ NO CUMPLE (Mínimo R5)"
+                        st.write(f"* **{rname}:** `{r_str}` ➔ {status}")
+
                     st.markdown("**Requisitos R7+:**")
                     rote_r7 = [
-                        ("Jedi Knight Cal Kestis", "Caballero Jedi Cal Kestis (JKCK)"),
-                        ("Cere Junda", "Cere Junda"),
-                        ("Grand Inquisitor", "Gran Inquisidor"),
-                        ("Bo-Katan (Mand'alor)", "Bo-Katan (Mand'alor)"),
-                        ("Merrin", "Merrin"),
-                        ("Saw Gerrera", "Saw Gerrera"),
-                        ("Luthen Rael", "Luthen Rael")
+                        ("JKCAL", "Caballero Jedi Cal Kestis (JKCK)"),
+                        ("CEREJUNDA", "Cere Junda"),
+                        ("GRANDINQUISITOR", "Gran Inquisidor"),
+                        ("BOKATANMANDALOR", "Bo-Katan (Mand'alor)"),
+                        ("MERRIN", "Merrin"),
+                        ("SAWGERRERA", "Saw Gerrera"),
+                        ("LUTHENRAEL", "Luthen Rael")
                     ]
-                    for key_name, display_name in rote_r7:
-                        estado = units_data.get(key_name.lower(), "❌ No Desbloqueado / Menor a R7")
-                        st.write(f"- **{display_name}:** `{estado}`")
+                    for rid, rname in rote_r7:
+                        r_str, r_num = get_relic(rid)
+                        status = "✅ Cumple" if r_num >= 7 else "❌ NO CUMPLE (Mínimo R7)"
+                        st.write(f"* **{rname}:** `{r_str}` ➔ {status}")
+
+                else:
+                    st.error("No se pudo obtener la información a través del servidor proxy.")
 
             except Exception as e:
-                st.error(f"Error al procesar la información: {str(e)}")
+                st.error(f"Error en la consulta: {str(e)}")
