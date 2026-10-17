@@ -10,11 +10,11 @@ st.write("Introduce el código de aliado del candidato para generar el informe a
 # Entrada del código de aliado
 ally_code = st.text_input("Código de Aliado (ejemplo: 736231314 o 736-231-314):", "")
 
-# Matriz oficial de omicrones del gremio
+# Matriz oficial de omicrones
 MATRIZ_OMICRONES_P1 = [
     ("GENERALSYNDULLA", "General Syndulla", "Único omi"),
     ("PADAWANSABINE", "Padawan Sabine Wren", "Único omi"),
-    ("FULCRUMAHOOKA", "Ahsoka Tano (Fulcrum)", "Único omi"),
+    ("FULCRUMAHSOKA", "Ahsoka Tano (Fulcrum)", "Único omi"),
     ("CALKESTIS", "Cal Kestis", "Único omi"),
     ("BRUTUS", "Brutus", "Único omi"),
     ("SM33", "SM-33", "First Mate of the Onyx Cinder"),
@@ -43,51 +43,78 @@ if st.button("🔍 Generar Informe de Auditoría"):
     if not code_clean or not code_clean.isdigit():
         st.error("Por favor, introduce un Código de Aliado válido (solo números).")
     else:
-        with st.spinner("Consultando la API de swgoh.gg..."):
+        with st.spinner("Consultando los datos en swgoh.gg..."):
             url = f"https://swgoh.gg/api/player/{code_clean}/"
-            response = requests.get(url)
-            
-            if response.status_code != 200:
-                st.error("No se pudo obtener la información del jugador. Verifica el Código de Aliado.")
-            else:
-                data = response.json()
-                player_name = data.get("data", {}).get("name", "Desconocido")
-                guild_name = data.get("data", {}).get("guild_name", "Sin Gremio")
-                units = {u["data"]["base_id"]: u["data"] for u in data.get("units", [])}
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            }
+            try:
+                response = requests.get(url, headers=headers, timeout=15)
+                
+                if response.status_code != 200:
+                    st.error(f"No se pudo obtener la información del jugador (Error HTTP {response.status_code}). Verifica que el código de aliado esté registrado en swgoh.gg.")
+                else:
+                    data = response.json()
+                    player_data = data.get("data", {})
+                    player_name = player_data.get("name", "Desconocido")
+                    guild_name = player_data.get("guild_name", "Sin Gremio")
+                    units_list = data.get("units", [])
+                    units = {u["data"]["base_id"]: u["data"] for u in units_list if "data" in u}
 
-                st.success(f"¡Datos cargados con éxito para **{player_name}** ({guild_name})!")
-                
-                # Resumen Markdown para copiar
-                st.subheader("📋 Informe Formateado")
-                
-                # Función auxiliar de reliquias
-                def get_relic(base_id):
-                    unit = units.get(base_id)
-                    if not unit:
-                        return "❌ No Desbloqueado", 0
-                    r_level = unit.get("relic_tier", 1) - 2
-                    if r_level > 0:
-                        return f"R{r_level}", r_level
-                    g_level = unit.get("gear_level", 1)
-                    return f"G{g_level}", 0
+                    st.success(f"¡Datos cargados con éxito para **{player_name}** ({guild_name})!")
+                    
+                    # Función auxiliar de reliquias
+                    def get_relic(base_id):
+                        unit = units.get(base_id)
+                        if not unit:
+                            return "❌ No Desbloqueado", 0
+                        r_level = unit.get("relic_tier", 1) - 2
+                        if r_level > 0:
+                            return f"R{r_level}", r_level
+                        g_level = unit.get("gear_level", 1)
+                        return f"G{g_level}", 0
 
-                # Renderizado de Secciones
-                st.markdown(f"### 📊 INFORME DE AUDITORÍA: {player_name}")
-                st.markdown(f"**Gremio Actual:** {guild_name}")
-                
-                # 1. Clones Luminosos
-                st.markdown("#### 🪖 Clones Luminosos (Mínimo R7 Exigido)")
-                clones = [
-                    ("CAPTAINREX", "Captain Rex"),
-                    ("CT5555", "CT-5555 'Fives'"),
-                    ("ARCTROOPER", "ARC Trooper"),
-                    ("CT210408", "CT-21-0408 'Echo'"),
-                    ("CT7567", "CT-7567 'Rex'"),
-                    ("CC2224", "CC-2224 'Cody'")
-                ]
-                for cid, cname in clones:
-                    r_str, r_num = get_relic(cid)
-                    status = "✅ APTO" if r_num >= 7 else "❌ NO APTO (Requiere R7+)"
-                    st.write(f"- **{cname}:** {r_str} ➔ {status}")
-                
-                st.info("Tip: Puedes seleccionar todo el texto generado para copiarlo a Discord o WhatsApp.")
+                    st.markdown("---")
+                    st.markdown(f"## 📊 INFORME DE AUDITORÍA: {player_name}")
+                    st.markdown(f"**Gremio Actual:** {guild_name}")
+                    
+                    # 1. Clones Luminosos
+                    st.markdown("### 🪖 Clones Luminosos (Mínimo R7 Exigido)")
+                    clones = [
+                        ("CAPTAINREX", "Captain Rex"),
+                        ("CT5555", "CT-5555 'Fives'"),
+                        ("ARCTROOPER", "ARC Trooper"),
+                        ("CT210408", "CT-21-0408 'Echo'"),
+                        ("CT7567", "CT-7567 'Rex'"),
+                        ("CC2224", "CC-2224 'Cody'")
+                    ]
+                    for cid, cname in clones:
+                        r_str, r_num = get_relic(cid)
+                        status = "✅ **APTO**" if r_num >= 7 else "❌ **NO APTO (Requiere R7+)**"
+                        st.write(f"* **{cname}:** `{r_str}` ➔ {status}")
+                    
+                    # 2. Requisitos RoTE
+                    st.markdown("### 🏛️ Requisitos RoTE (Rise of the Empire)")
+                    st.markdown("**Requisitos R5+:**")
+                    for rid, rname in [("QIRA", "Qi'ra"), ("YOUNGHAN", "Joven Han Solo")]:
+                        r_str, r_num = get_relic(rid)
+                        status = "✅ Cumple" if r_num >= 5 else "❌ NO CUMPLE (Mínimo R5)"
+                        st.write(f"* **{rname}:** `{r_str}` ➔ {status}")
+                        
+                    st.markdown("**Requisitos R7+:**")
+                    rote_r7 = [
+                        ("JKCAL", "Caballero Jedi Cal Kestis (JKCK)"),
+                        ("CEREJUNDA", "Cere Junda"),
+                        ("GRANDINQUISITOR", "Gran Inquisidor"),
+                        ("BOKATANMANDALOR", "Bo-Katan (Mand'alor)"),
+                        ("MERRIN", "Merrin"),
+                        ("SAWGERRERA", "Saw Gerrera"),
+                        ("LUTHENRAEL", "Luthen Rael")
+                    ]
+                    for rid, rname in rote_r7:
+                        r_str, r_num = get_relic(rid)
+                        status = "✅ Cumple" if r_num >= 7 else "❌ NO CUMPLE (Mínimo R7)"
+                        st.write(f"* **{rname}:** `{r_str}` ➔ {status}")
+
+            except Exception as e:
+                st.error(f"Error al conectar con el servidor: {str(e)}")
